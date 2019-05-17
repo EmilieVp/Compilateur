@@ -1,0 +1,1 @@
+{var i=10; {var i=31; print(i);} print(i);}

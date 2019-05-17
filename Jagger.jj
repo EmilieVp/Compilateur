@@ -1,0 +1,163 @@
+// Options for JavaCC.
+options { LOOKAHEAD=3; FORCE_LA_CHECK=true; }
+
+// Fonction principale
+PARSER_BEGIN(Jagger)
+public class Jagger {
+    public static void main(String args[]) throws ParseException {
+        Jagger parser = new Jagger(System.in);
+        parser.mainloop();
+    }
+}
+PARSER_END(Jagger)
+
+// Characters to ignore.
+SKIP: { " " | "\r" | "\t"
+        | < "//" (~["\r", "\n"])* >
+        | < "/*" > : ML_COMMENT_STATE
+        }
+
+<ML_COMMENT_STATE> SKIP :
+{
+  < "*/" > : DEFAULT
+| < ~[] >
+}
+
+// Token specifications.
+TOKEN:
+{
+    < IF: "if">
+|   < TYPE: "int" | "float" | "void">
+|   < ELSE: "else">
+|   < PRINT: "print">
+|	< WHILE: "while">
+
+|   < BOPEN: "(">
+|   < BEND: ")">
+
+|   < COPEN: "{">
+|   < CEND: "}">
+
+|   <ENDL: ";">
+|   <EQ: "=">
+|   < EOL: "\n" >                             // End of line.
+|   < VAR: "var">
+|   < STRING: "\"" (~["\""])*  "\"">
+
+|   < NUMBER: (<DIGIT>)+ ("." (<DIGIT>)*)? >  // A decimal number.
+|   < DIGIT: ["0"-"9"] >
+|   < ID: (["a"-"z"]|["A"-"Z"])+ >
+}
+
+
+// Main lopp: read expressions on a line until end of file.
+//     mainloop → (expression <EOL>)* <EOF>
+void mainloop():
+{ Statement a; }
+{
+    (
+      a=statement5() <EOL> {
+        TypeCheckerVisitor tcv = new TypeCheckerVisitor();
+        PrettyPrintVisitor ppv = new PrettyPrintVisitor();
+        EvaluateVisitor ev = new EvaluateVisitor();
+        tcv.visit(a);
+        ppv.visit(a);
+        ev.visit(a);
+
+        System.out.println("=====================");
+        System.out.println("Type: " + tcv.TYPE);
+        System.out.println("Execution du programme: ");
+        System.out.println("---------------------");
+
+        System.out.println(ev.STR_VALUE);
+
+        System.out.println("---------------------");
+        ppv.visit(a);
+        System.out.println("Str: " + ppv.STR_VALUE);
+
+      }
+
+    )*
+    <EOF>
+}
+
+
+
+Statement statement5():
+{Statement a, b, c; Expression e; Scope s = new Scope(); Token t;}{
+	e = expression() <ENDL> {return new SExpression(e);}
+	| <IF> <BOPEN> e=expression() <BEND> b=statement5() <ELSE> c=statement5() {return new IfThenElse(e, b, c);}
+  | <COPEN> ( a=statement5() {s.addStatement(a);} )* <CEND> {return s;}
+  | <VAR> t=<ID> <EQ> e=expression() <ENDL> {return new SInit(new ID(t.toString()), e);}
+  | t=<ID> <EQ> e=expression() <ENDL> {return new SAssign(new Variable(t.toString()), e);}
+//  | <TYPE> t=<ID> <ENDL> {return new SDecl(t.toString());}
+  | <PRINT> <BOPEN> e=expression() <BEND> <ENDL> {return new Print(e);}
+  | <WHILE> <BOPEN> e=expression() <BEND> b=statement5() {return new WhileDo(e, b);}
+}
+
+
+Expression expression():
+{ Expression a,b; }
+{
+    a=expression12()
+    (
+      "==" b=expression() { a=new Equal(a, b); }
+    | "!=" b=expression() { a=new NotEqual(a, b); }
+    
+    )? { return a; }
+}
+
+
+Expression expression12():
+{ Expression a,b; }
+{
+    a=expression13()
+    (
+      ">" b=expression12() { a=new Greater(a, b); }
+    | "<" b=expression12() { a=new Less(a, b); }
+    | ">=" b=expression12() { a=new GreaterOrEqual(a, b); }
+    | "<=" b=expression12() { a=new LessOrEqual(a, b); }
+    )? { return a; }
+}
+
+Expression expression13():
+{ Expression a,b; }
+{
+    a=expression14()
+    (
+      ("+" b=expression14() { a=new Add(a, b); })
+    | ("-" b=expression14() { a=new Sub(a, b); })
+    )* { return a; }
+}
+
+
+Expression expression14():
+{ Expression a,b; }
+{
+    a=expression15()
+    (
+      ("*" b=expression15() { a=new Mul(a, b); })
+    | ("/" b=expression15() { a=new Div(a, b); })
+    )* { return a; }
+}
+
+Expression expression15():
+{ Expression a; }
+{
+    a=expression17() {return a; }
+    | "-" a=expression17() { return new Negative(a); }
+}
+
+
+Expression expression17():
+{ Token t; Expression e; }
+{
+    t=<STRING> {
+        String str = t.toString();
+        return new PString(str.substring(1, str.length()-1));
+    }
+    | t=<NUMBER> { return new Num(Integer.parseInt(t.toString())); }
+    | "(" e=expression() ")" { return e;}
+    | t=<ID> {return new Variable(t.toString()); }
+
+}
